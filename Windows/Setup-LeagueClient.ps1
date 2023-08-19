@@ -1,4 +1,5 @@
-<# Modified version of: https://github.com/MingweiSamuel/lcu-schema/blob/a309d795ddf0eba093cb6a6f54ffa9238e947f3a/update.ps1
+<# Modified version of: https://github.com/magisteriis/setup-league-client/blob/3bacf6c1125fe4ad34e5f9020636768cfb61ada1/Windows/Setup-LeagueClient.ps1
+which itself is a modified version of: https://github.com/MingweiSamuel/lcu-schema/blob/a309d795ddf0eba093cb6a6f54ffa9238e947f3a/update.ps1
 MIT License
 
 Copyright (c) 2019 Mingwei Samuel
@@ -114,6 +115,19 @@ If (-Not (Test-Path $LCU_EXE)) {
     }
     
     Invoke-Expression "$INSTALLER_EXE --skip-to-install"
+    # Wait for RCS to initialize
+    Start-Sleep 5
+    
+    # Check lockfile
+    $attempts = 5
+    While (!(Test-Path $RCS_LOCKFILE -ErrorAction SilentlyContinue)) {
+        $attempts--
+        Write-Host "Waiting for RCS lockfile... $($attempts) attempts remaining."
+        If ($attempts -Le 0) {
+            Throw 'Failed to install LoL.'
+        }
+        Start-Sleep 5
+    }
 
     # RCS starts, but install of LoL hangs, possibly due to .NET Framework 3.5 missing.
     # So we restart it and then it works.
@@ -124,10 +138,12 @@ If (-Not (Test-Path $LCU_EXE)) {
     & $RCS_EXE $RCS_ARGS
     Start-Sleep 5
 
+    # Update client
     $attempts = 15
     While ($True) {
         $status = Invoke-RiotRequest $RCS_LOCKFILE "/patch/v1/installs/$LOL_INSTALL_ID/status"
         If ('up_to_date' -Eq $status.patch.state) {
+            Write-Host "Already up to date."
             Break
         }
         Write-Host "Installing LoL: $($status.patch.progress.progress)%"
@@ -157,7 +173,10 @@ Try {
     # Login to RCS to start the LCU.
     Write-Host 'Logging into RCS, starts LCU.'
     Invoke-RiotRequest $RCS_LOCKFILE '/rso-auth/v1/authorization/gas' 'POST' @{username=$env:LOL_USERNAME; password=$env:LOL_PASSWORD} | Out-Null
-
+    Start-Sleep 5
+    Write-Host 'Starting RCS (via LCU).'
+    & $LCU_EXE $LCU_ARGS
+    
     # Wait for LCU to update itself.
     Start-Sleep 5
     Invoke-RiotRequest $LCU_LOCKFILE '/lol-patch/v1/products/league_of_legends/state' # Burn first request.
